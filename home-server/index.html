@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Packet Sniffer Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0d1117;
+            color: #c9d1d9;
+            min-height: 100vh;
+            padding: 1.5rem;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        header h1 { color: #58a6ff; font-size: 1.4rem; }
+
+        #status {
+            font-size: 0.85rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            background: #1a2a1a;
+            color: #3fb950;
+            border: 1px solid #3fb950;
+        }
+
+        #status.offline { background: #2a1a1a; color: #f85149; border-color: #f85149; }
+
+        /* Stat cards */
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #58a6ff;
+        }
+
+        .card .label { font-size: 0.75rem; color: #8b949e; margin-top: 0.25rem; }
+
+        .card.tcp   .value { color: #79c0ff; }
+        .card.udp   .value { color: #d2a8ff; }
+        .card.http  .value { color: #3fb950; }
+        .card.dns   .value { color: #e3b341; }
+
+        /* Two-column layout */
+        .columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        @media (max-width: 700px) { .columns { grid-template-columns: 1fr; } }
+
+        .panel {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .panel h2 {
+            font-size: 0.85rem;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.75rem;
+        }
+
+        .bar-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .bar-row .ip { color: #c9d1d9; flex: 1; }
+
+        .bar-row .count {
+            color: #58a6ff;
+            min-width: 2.5rem;
+            text-align: right;
+            margin-left: 0.5rem;
+        }
+
+        /* Packets table */
+        .panel.full { grid-column: 1 / -1; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+
+        th {
+            color: #8b949e;
+            text-align: left;
+            padding: 0.4rem 0.5rem;
+            border-bottom: 1px solid #30363d;
+            font-weight: normal;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+        }
+
+        td { padding: 0.35rem 0.5rem; border-bottom: 1px solid #1c2128; }
+
+        tr:last-child td { border-bottom: none; }
+
+        .proto {
+            font-weight: bold;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        .proto.TCP   { color: #79c0ff; background: #0d2044; }
+        .proto.UDP   { color: #d2a8ff; background: #1a0d2e; }
+        .proto.HTTP  { color: #3fb950; background: #0d2a14; }
+        .proto.DNS   { color: #e3b341; background: #2a200d; }
+        .proto.OTHER { color: #8b949e; background: #1c2128; }
+
+        #last-updated { font-size: 0.75rem; color: #484f58; margin-top: 1rem; text-align: right; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>&#9632; Packet Sniffer Dashboard</h1>
+    <span id="status">● Connecting...</span>
+</header>
+
+<div class="cards">
+    <div class="card">
+        <div class="value" id="c-total">0</div>
+        <div class="label">Total Packets</div>
+    </div>
+    <div class="card tcp">
+        <div class="value" id="c-tcp">0</div>
+        <div class="label">TCP</div>
+    </div>
+    <div class="card udp">
+        <div class="value" id="c-udp">0</div>
+        <div class="label">UDP</div>
+    </div>
+    <div class="card http">
+        <div class="value" id="c-http">0</div>
+        <div class="label">HTTP</div>
+    </div>
+    <div class="card dns">
+        <div class="value" id="c-dns">0</div>
+        <div class="label">DNS</div>
+    </div>
+</div>
+
+<div class="columns">
+    <div class="panel">
+        <h2>Top Source IPs (Layer 3)</h2>
+        <div id="top-sources"></div>
+    </div>
+    <div class="panel">
+        <h2>Top Destination IPs (Layer 3)</h2>
+        <div id="top-destinations"></div>
+    </div>
+</div>
+
+<div class="panel">
+    <h2>Recent Packets</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Proto</th>
+                <th>Source</th>
+                <th>Destination</th>
+                <th>Len</th>
+                <th>Info</th>
+            </tr>
+        </thead>
+        <tbody id="packet-table"></tbody>
+    </table>
+</div>
+
+<div id="last-updated"></div>
+
+<script>
+    const API = 'http://192.168.126.1:5000';
+
+    function setStatus(online) {
+        const el = document.getElementById('status');
+        el.textContent = online ? '● Online' : '● Offline';
+        el.className = online ? '' : 'offline';
+    }
+
+    function renderBars(containerId, rows) {
+        const el = document.getElementById(containerId);
+        if (!rows.length) { el.innerHTML = '<div style="color:#484f58;font-size:0.8rem">No data yet</div>'; return; }
+        const max = rows[0][1];
+        el.innerHTML = rows.map(([ip, count]) => `
+            <div class="bar-row">
+                <span class="ip">${ip}</span>
+                <span class="count">${count}</span>
+            </div>
+        `).join('');
+    }
+
+    function renderPackets(packets) {
+        const tbody = document.getElementById('packet-table');
+        const rows = [...packets].reverse().slice(0, 20).map(p => {
+            const src = p.src_port ? `${p.src_ip}:${p.src_port}` : (p.src_ip || '—');
+            const dst = p.dst_port ? `${p.dst_ip}:${p.dst_port}` : (p.dst_ip || '—');
+            const info = p.dns_name
+                ? (p.dns_answer ? `${p.dns_name} → ${p.dns_answer}` : `query: ${p.dns_name}`)
+                : (p.payload_preview || p.tcp_flags || '');
+            return `<tr>
+                <td>${p.timestamp.split(' ')[1]}</td>
+                <td><span class="proto ${p.protocol}">${p.protocol}</span></td>
+                <td>${src}</td>
+                <td>${dst}</td>
+                <td>${p.length}</td>
+                <td style="color:#8b949e;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${info}</td>
+            </tr>`;
+        }).join('');
+        tbody.innerHTML = rows || '<tr><td colspan="6" style="color:#484f58">No packets yet</td></tr>';
+    }
+
+    async function refresh() {
+        try {
+            const [stats, pkts] = await Promise.all([
+                fetch(`${API}/api/stats`).then(r => r.json()),
+                fetch(`${API}/api/packets`).then(r => r.json()),
+            ]);
+
+            setStatus(true);
+
+            document.getElementById('c-total').textContent = stats.total;
+            document.getElementById('c-tcp').textContent  = (stats.protocols.TCP  || 0) + (stats.protocols.HTTP || 0);
+            document.getElementById('c-udp').textContent  = (stats.protocols.UDP  || 0) + (stats.protocols.DNS  || 0);
+            document.getElementById('c-http').textContent = stats.protocols.HTTP || 0;
+            document.getElementById('c-dns').textContent  = stats.protocols.DNS  || 0;
+
+            renderBars('top-sources',      stats.top_sources);
+            renderBars('top-destinations', stats.top_destinations);
+            renderPackets(pkts);
+
+            document.getElementById('last-updated').textContent =
+                `Last updated: ${new Date().toLocaleTimeString()}  |  Capturing since: ${stats.started_at}`;
+
+        } catch (e) {
+            setStatus(false);
+        }
+    }
+
+    refresh();
+    setInterval(refresh, 2000);
+</script>
+
+</body>
+</html>
